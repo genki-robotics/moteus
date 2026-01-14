@@ -130,6 +130,7 @@ enum Register : uint16_t {
 
   kCommandQCurrent = 0x01c,
   kCommandDCurrent = 0x01d,
+  kCommandTorqueConstantModificationFactor = 0x01f,
 
   kCommandPosition = 0x020,
   kCommandVelocity = 0x021,
@@ -864,6 +865,9 @@ struct PositionMode {
     double ignore_position_bounds = 0.0;
     double kp = NaN;
     double kd = NaN;
+    // Torque constant modification factor (0-255 mapped to 0.0-2.55)
+    // Value is transmitted as uint8 and divided by 100 on the controller
+    double torque_constant_modification_factor = NaN;
   };
 
   struct Format {
@@ -883,6 +887,7 @@ struct PositionMode {
     Resolution ignore_position_bounds = kIgnore;
     Resolution kp = kIgnore;
     Resolution kd = kIgnore;
+    Resolution torque_constant_modification_factor = kIgnore;
   };
 
   static uint8_t Make(WriteCanData* frame,
@@ -894,7 +899,9 @@ struct PositionMode {
 
     // Now we use some heuristics to try and group consecutive registers
     // of the same resolution together into larger writes.
+    // Starting at 0x01f (torque_constant_modification_factor) to allow combining
     const Resolution kResolutions[] = {
+      format.torque_constant_modification_factor,
       format.position,
       format.velocity,
       format.feedforward_torque,
@@ -914,10 +921,15 @@ struct PositionMode {
     };
     WriteCombiner combiner(
         frame, 0x00,
-        Register::kCommandPosition,
+        Register::kCommandTorqueConstantModificationFactor,
         kResolutions,
         sizeof(kResolutions) / sizeof(*kResolutions));
 
+    if (combiner.MaybeWrite()) {
+      // torque_constant_modification_factor: uint8 value divided by 100 on controller
+      frame->WriteInt(static_cast<int8_t>(command.torque_constant_modification_factor * 100.0),
+                      format.torque_constant_modification_factor);
+    }
     if (combiner.MaybeWrite()) {
       frame->WritePosition(command.position, format.position);
     }
